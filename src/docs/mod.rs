@@ -60,12 +60,10 @@ impl Service<Request<Body>> for ServeDocs {
             };
 
             let html = comrak::markdown_to_html(&doc, &comrak::Options::default());
-            let css = tokio::fs::read_to_string("docs/styles.css").await.unwrap_or_default();
+            let css = include_str!("styles.css");
+            let js = include_str!("main.js");
 
-            let html = format!(
-                "<html><head><style>{}</style></head><body>{}</body></html>",
-                css, html
-            );
+            let html = format!(include_str!("format.html"), css, js, html);
 
             Ok(axum::response::Response::builder()
                 .status(200)
