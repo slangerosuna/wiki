@@ -9,9 +9,9 @@ pub enum LoginResult {
     },
 }
 
-use rusqlite::{Connection, Result, params};
 use tokio::sync::{mpsc, oneshot};
 use tokio::task;
+use rusqlite::{Connection, Result, params};
 
 #[derive(Debug)]
 pub enum DbRequest {
@@ -55,7 +55,7 @@ impl Database {
             conn.execute(
                 "CREATE TABLE IF NOT EXISTS users (
                     id INTEGER PRIMARY KEY,
-                    username TEXT NOT NULL,
+                    username TEXT NOT NULL UNIQUE,
                     password TEXT NOT NULL,
                     privileges INTEGER NOT NULL,
                     privileges_last_updated TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -171,7 +171,7 @@ impl Database {
         privileges: i32,
     ) -> Result<()> {
         let (resp_tx, resp_rx) = oneshot::channel();
-        
+
         let req = DbRequest::AddUser {
             username: username.to_string(),
             password_hash: password_hash.to_string(),

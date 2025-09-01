@@ -23,7 +23,35 @@ pub async fn login_handler(Json(payload): Json<LoginRequest>) -> impl IntoRespon
 
     let auth_token = create_jwt(payload.username.as_str(), privilege).unwrap();
 
-    (axum::http::StatusCode::OK, auth_token).into_response()
+    #[derive(Serialize)]
+    struct LoginResponse {
+        token: String,
+        privileges: i32,
+    }
+
+    let response = LoginResponse {
+        token: auth_token,
+        privileges: privilege,
+    };
+
+    let response = serde_json::to_string(&response).unwrap();
+
+    (axum::http::StatusCode::OK, response).into_response()
+}
+
+pub async fn register_handler(Json(payload): Json<LoginRequest>) -> impl IntoResponse {
+    let Ok(_) = crate::DB
+        .add_user(payload.username.as_str(), payload.password.as_str(), if payload.username == "root" { 0 } else { 1 })
+        .await
+    else {
+        return (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            "Failed to register user",
+        )
+            .into_response();
+    };
+
+    (axum::http::StatusCode::OK, "User registered successfully").into_response()
 }
 
 #[derive(Deserialize, Serialize)]
@@ -58,6 +86,7 @@ pub fn check_jwt_perms(jwt: &str, required_privileges: i32) -> bool {
         Ok(token_data) => {
             let claims = token_data.claims;
             claims.privileges >= required_privileges && claims.exp > get_current_timestamp()
+                || claims.privileges == 0
         }
         Err(_) => false,
     }
