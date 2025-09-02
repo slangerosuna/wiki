@@ -76,7 +76,7 @@ fn create_jwt(username: &str, privileges: i32) -> Result<String, jsonwebtoken::e
     encode(&Header::default(), &claims, &encoding_key)
 }
 
-pub fn check_jwt_perms(jwt: &str, required_privileges: i32) -> bool {
+pub fn get_jwt_perms(jwt: &str) -> Option<i32> {
     use jsonwebtoken::{DecodingKey, Validation, decode};
 
     let decoding_key = DecodingKey::from_secret(SECRET_KEY);
@@ -85,10 +85,9 @@ pub fn check_jwt_perms(jwt: &str, required_privileges: i32) -> bool {
     match decode::<JwtClaims>(jwt, &decoding_key, &validation) {
         Ok(token_data) => {
             let claims = token_data.claims;
-            claims.privileges >= required_privileges && claims.exp > get_current_timestamp()
-                || claims.privileges == 0
+            Some(claims.privileges)
         }
-        Err(_) => false,
+        Err(_) => None,
     }
 }
 

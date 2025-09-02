@@ -27,15 +27,23 @@ impl Service<Request<Body>> for ServeDocs {
     fn call(&mut self, req: Request<Body>) -> Self::Future {
         let path = self.path.clone();
         Box::pin(async move {
+            let permissions;
+            if let Some(jwt) = req.headers().get::<&str>("Authorization") {
+                let jwt = jwt.to_str().unwrap_or("").strip_prefix("Bearer ").unwrap_or("");
+                permissions = crate::user::get_jwt_perms(jwt).unwrap_or(1);
+            } else {
+                return Ok(axum::response::Response::builder()
+                    .status(200)
+                    .body(Body::from(format!("<html><head><script>{}</script></head></html>", include_str!("pull_jwt_or_forward_to_login.js"))))
+                    .unwrap());
+            }
+
             let uri = req.uri();
-            // Check to see if the uri ends in ?edit
             if uri.query().map(|q| q.contains("edit")).unwrap_or(false) {
                 let uri = uri.path();
-                // Serve an editor interface for the markdown, creating a new file if it doesn't exist already
                 let doc_path = format!("{}{}.md", path, uri);
                 let contents = tokio::fs::read_to_string(&doc_path).await.unwrap_or_default();
 
-                // Serve an editor interface for the markdown
                 let response = axum::response::Response::builder()
                     .status(200)
                     .body(Body::from(format!(
@@ -59,7 +67,8 @@ impl Service<Request<Body>> for ServeDocs {
                 }
             };
 
-            let html = comrak::markdown_to_html(&doc, &comrak::Options::default());
+            let html = parse_markdown(&doc, permissions);
+            
             let css = include_str!("styles.css");
             let js = include_str!("main.js");
 
@@ -71,4 +80,37 @@ impl Service<Request<Body>> for ServeDocs {
                 .unwrap())
         })
     }
+}
+
+fn parse_markdown(doc: &str, permissions: i32) -> String {
+    let mut sections = Vec::new();
+    let mut current_section = String::new();
+
+    for line in doc.lines() {
+        if line.starts_with('!') {
+            if permissions < line[1..].chars().next().unwrap_or('1').to_digit(10).unwrap_or(1) as i32 || permissions == 0 {
+                continue;
+            }
+
+            if !current_section.is_empty() {
+                sections.push(current_section);
+                current_section = String::new();
+            }
+        }
+        current_section.push_str(line);
+        current_section.push('\n');
+    }
+    if !current_section.is_empty() {
+        sections.push(current_section);
+    }
+
+    if sections.is_empty() {
+        return "Page requires higher privileges, try logging in.".into();
+    }
+
+    sections
+        .into_iter()
+        .map(|section| comrak::markdown_to_html(&section, &comrak::Options::default()))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
