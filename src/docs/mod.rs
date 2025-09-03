@@ -34,7 +34,7 @@ impl Service<Request<Body>> for ServeDocs {
             } else {
                 return Ok(axum::response::Response::builder()
                     .status(200)
-                    .body(Body::from(format!("<html><head><script>{}</script></head></html>", include_str!("pull_jwt_or_forward_to_login.js"))))
+                    .body(Body::from(format!("<!doctype html><html><head><script>{}</script></head></html>", include_str!("pull_jwt_or_forward_to_login.js"))))
                     .unwrap());
             }
 
@@ -85,32 +85,40 @@ impl Service<Request<Body>> for ServeDocs {
 fn parse_markdown(doc: &str, permissions: i32) -> String {
     let mut sections = Vec::new();
     let mut current_section = String::new();
+    let mut skip_section = false;
 
     for line in doc.lines() {
         if line.starts_with('!') {
-            if permissions < line[1..].chars().next().unwrap_or('1').to_digit(10).unwrap_or(1) as i32 || permissions == 0 {
-                continue;
+            if permissions >= line[1..].chars().next().unwrap_or('1').to_digit(10).unwrap_or(1) as i32 || permissions == 0 {
+                skip_section = false;
+            } else {
+                skip_section = true;
             }
 
             if !current_section.is_empty() {
-                sections.push(current_section);
+                if !skip_section {
+                    sections.push(current_section);
+                }
                 current_section = String::new();
             }
+        } else {
+            current_section.push_str(line);
+            current_section.push('\n');
         }
-        current_section.push_str(line);
-        current_section.push('\n');
     }
-    if !current_section.is_empty() {
+    if !current_section.is_empty() && !skip_section {
         sections.push(current_section);
     }
 
-    if sections.is_empty() {
-        return "Page requires higher privileges, try logging in.".into();
-    }
-
-    sections
+    let page =sections
         .into_iter()
         .map(|section| comrak::markdown_to_html(&section, &comrak::Options::default()))
         .collect::<Vec<_>>()
-        .join("\n")
+        .join("\n");
+
+    if page.trim().is_empty() {
+        "Page requires higher privileges, try logging in.".into()
+    } else {
+        page
+    }
 }

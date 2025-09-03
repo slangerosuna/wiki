@@ -1,7 +1,7 @@
 use axum::Router;
 use lazy_static::lazy_static;
 use std::net::SocketAddr;
-use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::{net::TcpListener, sync::mpsc::Receiver};
 use tower_http::services::ServeDir;
 
@@ -25,7 +25,10 @@ async fn main() {
     tokio::spawn(async move {
         let mut input = String::new();
         let mut reader = BufReader::new(tokio::io::stdin());
-        while let Ok(n) = reader.read_line(&mut input).await {
+        loop {
+            let Ok(n) = reader.read_line(&mut input).await else {
+                break;
+            };
             if n == 0 {
                 break; // EOF (I don't think this is possible)
             }
@@ -70,5 +73,5 @@ async fn main() {
 async fn shutdown_signal(mut rx: Receiver<()>) {
     rx.recv().await.expect("Sender mysteriously dropped");
 
-    println!("\nReceived shutdown signal, shutting down gracefully...");
+    println!("Shutting down gracefully...");
 }

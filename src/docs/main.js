@@ -1,5 +1,7 @@
 const THEME_KEY = 'site-theme';
 
+console.log("docs main.js loaded");
+
 function applyTheme(theme) {
   if (theme === 'dark') {
     document.documentElement.classList.add('dark');

@@ -51,7 +51,33 @@ pub async fn register_handler(Json(payload): Json<LoginRequest>) -> impl IntoRes
             .into_response();
     };
 
-    (axum::http::StatusCode::OK, "User registered successfully").into_response()
+    let Ok(Some(privilege)) = crate::DB
+        .login(payload.username.as_str(), payload.password.as_str())
+        .await
+    else {
+        return (
+            axum::http::StatusCode::UNAUTHORIZED,
+            "Invalid username or password",
+        )
+            .into_response();
+    };
+
+    let auth_token = create_jwt(payload.username.as_str(), privilege).unwrap();
+
+    #[derive(Serialize)]
+    struct LoginResponse {
+        token: String,
+        privileges: i32,
+    }
+
+    let response = LoginResponse {
+        token: auth_token,
+        privileges: privilege,
+    };
+
+    let response = serde_json::to_string(&response).unwrap();
+
+    (axum::http::StatusCode::OK, response).into_response()
 }
 
 #[derive(Deserialize, Serialize)]
@@ -78,6 +104,10 @@ fn create_jwt(username: &str, privileges: i32) -> Result<String, jsonwebtoken::e
 
 pub fn get_jwt_perms(jwt: &str) -> Option<i32> {
     use jsonwebtoken::{DecodingKey, Validation, decode};
+
+    if jwt == "guest" {
+        return Some(1);
+    }
 
     let decoding_key = DecodingKey::from_secret(SECRET_KEY);
     let validation = Validation::default();

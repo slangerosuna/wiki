@@ -33,6 +33,17 @@
 
         <main id="app">
             <section class="hero">
+                <h1>Login</h1>
+                <form id="login-form">
+                    <label for="username">Username:</label>
+                    <input type="text" id="username" name="username" required />
+                    <label for="password">Password:</label>
+                    <input type="password" id="password" name="password" required />
+                    <button id="login-button">Login</button>
+                    <div id="error-message" style="color: red;"></div>
+                    <button id="register-button">Register</button>
+                    <button id="continue-as-guest-button">Continue as Guest</button>
+                </form>
             </section>
         </main>
     </body>
