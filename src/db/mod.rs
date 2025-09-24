@@ -252,7 +252,9 @@ fn verify_privilege(
 }
 
 pub mod testing {
-    use super::OnceLock;
+    use super::{Connection, OnceLock};
+    use chrono::{Duration, Utc};
+    use rusqlite::params;
     use std::sync::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
@@ -286,6 +288,28 @@ pub mod testing {
             self.called.store(true, Ordering::SeqCst);
             *self.last_call.lock().expect("probe mutex poisoned") = Some(call);
         }
+    }
+
+    /// Back-date a user's `privileges_last_updated` field by the provided duration while
+    /// clamping negative durations to zero to avoid advancing the timestamp.
+    pub fn backdate_privileges(
+        conn: &Connection,
+        username: &str,
+        delta: Duration,
+    ) -> rusqlite::Result<()> {
+        let clamped = if delta < Duration::zero() {
+            Duration::zero()
+        } else {
+            delta
+        };
+        let target_timestamp = (Utc::now() - clamped)
+            .format("%Y-%m-%d %H:%M:%S")
+            .to_string();
+        conn.execute(
+            "UPDATE users SET privileges_last_updated = ?1 WHERE username = ?2",
+            params![target_timestamp, username],
+        )
+        .map(|_| ())
     }
 
     static VERIFICATION_PROBE: OnceLock<Mutex<Option<VerificationProbe>>> = OnceLock::new();

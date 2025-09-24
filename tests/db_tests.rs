@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use chrono::{Duration, Utc};
+use chrono::Duration;
 use rusqlite::{Connection, params};
 use tempfile::tempdir;
 use wiki::db::Database;
@@ -92,12 +92,13 @@ async fn login_with_stale_privileges_triggers_verification() {
             |row| row.get(0),
         )
         .expect("query user id");
-    let stale = (Utc::now() - Duration::days(31)).format("%Y-%m-%d %H:%M:%S");
     conn.execute(
-        "UPDATE users SET privileges_last_updated = ?1, patreon_id = ?2, patreon_refresh_token = ?3 WHERE username = ?4",
-        params![stale.to_string(), "patreon-carol", "refresh-token", "carol"],
+        "UPDATE users SET patreon_id = ?1, patreon_refresh_token = ?2 WHERE username = ?3",
+        params!["patreon-carol", "refresh-token", "carol"],
     )
-    .expect("update timestamp and patreon fields");
+    .expect("update patreon fields");
+    wiki::db::testing::backdate_privileges(&conn, "carol", Duration::days(31))
+        .expect("backdate privileges");
 
     let privileges = db.login("carol", "password").await.expect("login failed");
     assert_eq!(privileges, Some(5));

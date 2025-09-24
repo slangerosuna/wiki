@@ -12,3 +12,4 @@ Document scenarios required to validate `Database::login()` behavior, especially
 ## Notes
 - Ensure tests operate on isolated SQLite files via temporary directories.
 - Use direct `UPDATE` statements through `rusqlite::Connection` to back-date timestamps safely within tests.
+- Helper `wiki::db::testing::backdate_privileges()` clamps negative durations and returns `rusqlite::Result<()>`, providing shared logic for timestamp control across suites.
