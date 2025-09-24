@@ -27,6 +27,45 @@ async fn add_user_and_login_succeeds() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn login_uses_secure_password_hashing() {
+    let (_dir, path) = temp_db_path();
+    let db = Database::new(path.to_str().unwrap()).expect("failed to create db");
+
+    let username = "dave";
+    let password = "correcthorsebatterystaple";
+
+    db.add_user(username, password, 7)
+        .await
+        .expect("add_user failed");
+
+    let conn = Connection::open(&path).expect("open connection");
+    let stored_password: String = conn
+        .query_row(
+            "SELECT password FROM users WHERE username = ?1",
+            [&username],
+            |row| row.get(0),
+        )
+        .expect("fetch stored password");
+
+    assert_ne!(stored_password, password, "password should be hashed");
+    assert!(stored_password.starts_with("$argon2id$"), "unexpected hash format: {stored_password}");
+
+    let privileges = db
+        .login(username, password)
+        .await
+        .expect("login failed");
+    assert_eq!(privileges, Some(7));
+
+    let wrong_privileges = db
+        .login(username, "totally-wrong")
+        .await
+        .expect("login with wrong password failed to return");
+    assert!(wrong_privileges.is_none());
+
+    db.close().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn login_with_invalid_credentials_returns_none() {
     let (_dir, path) = temp_db_path();
     let db = Database::new(path.to_str().unwrap()).expect("failed to create db");

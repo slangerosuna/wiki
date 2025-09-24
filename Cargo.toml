@@ -20,6 +20,7 @@ chrono = "0.4.41"
 comrak = "0.41.0"
 jsonwebtoken = "9.3.1"
 tower-service = "0.3.3"
+argon2 = { version = "0.5", features = ["std"] }
 
 [dev-dependencies]
 tempfile = "3.13.0"

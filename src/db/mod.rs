@@ -9,6 +9,8 @@ pub enum LoginResult {
     },
 }
 
+use argon2::{Argon2, PasswordHasher, PasswordVerifier};
+use argon2::password_hash::{PasswordHash, SaltString, rand_core::OsRng};
 use rusqlite::{Connection, Result, params};
 use std::sync::OnceLock;
 use tokio::sync::{mpsc, oneshot};
@@ -29,7 +31,7 @@ pub enum DbRequest {
     },
     Login {
         username: String,
-        password_hash: String,
+        password: String,
         resp: oneshot::Sender<Result<LoginResult>>,
     },
     Close,
@@ -85,15 +87,17 @@ impl Database {
                             let _ = resp.send(result);
                         }
                         DbRequest::SetUserPrivileges { user_id, privileges, resp } => {
-                            let result = conn.execute(
-                                "UPDATE users SET privileges = ?1, privileges_last_updated = CURRENT_TIMESTAMP WHERE id = ?2",
-                                params![privileges, user_id],
-                            ).map(|_| ());
+                            let result = conn
+                                .execute(
+                                    "UPDATE users SET privileges = ?1, privileges_last_updated = CURRENT_TIMESTAMP WHERE id = ?2",
+                                    params![privileges, user_id],
+                                )
+                                .map(|_| ());
                             let _ = resp.send(result);
                         }
-                        DbRequest::Login { username, password_hash, resp } => {
+                        DbRequest::Login { username, password, resp } => {
                             let mut stmt = match conn.prepare(
-                                "SELECT privileges, privileges_last_updated, id, patreon_id, patreon_refresh_token FROM users WHERE username = ?1 AND password = ?2"
+                                "SELECT password, privileges, privileges_last_updated, id, patreon_id, patreon_refresh_token FROM users WHERE username = ?1"
                             ) {
                                 Ok(stmt) => stmt,
                                 Err(e) => {
@@ -101,63 +105,45 @@ impl Database {
                                     continue;
                                 }
                             };
-                            let mut rows = match stmt.query(params![username, password_hash]) {
+
+                            let mut rows = match stmt.query(params![username]) {
                                 Ok(rows) => rows,
                                 Err(e) => {
                                     let _ = resp.send(Err(e));
                                     continue;
                                 }
                             };
-                            use chrono::{NaiveDateTime, Utc, Duration};
-                            let result = match rows.next() {
+
+                            use chrono::{Duration, NaiveDateTime, Utc};
+
+                            let result: Result<LoginResult> = match rows.next() {
                                 Ok(Some(row)) => {
-                                    let privileges: i32 = match row.get(0) {
-                                        Ok(p) => p,
-                                        Err(e) => return { let _ = resp.send(Err(e)); },
-                                    };
-                                    let last_updated_str: String = match row.get(1) {
-                                        Ok(s) => s,
-                                        Err(e) => return { let _ = resp.send(Err(e)); },
-                                    };
-                                    let user_id: i32 = match row.get(2) {
-                                        Ok(id) => id,
-                                        Err(e) => return { let _ = resp.send(Err(e)); },
-                                    };
-                                    let patreon_id: Option<String> = match row.get(3) {
-                                        Ok(d) => d,
-                                        Err(e) => return { let _ = resp.send(Err(e)); },
-                                    };
-                                    let patreon_refresh_token: Option<String> = match row.get(4) {
-                                        Ok(t) => t,
-                                        Err(e) => return { let _ = resp.send(Err(e)); },
-                                    };
-                                    // Parse timestamp and check if > 30 days
-                                    let needs_verify = if privileges != 0 && privileges != 1 {
-                                        if let Ok(last_updated) = NaiveDateTime::parse_from_str(&last_updated_str, "%Y-%m-%d %H:%M:%S") {
-                                            let now = Utc::now().naive_utc();
-                                            now.signed_duration_since(last_updated) > Duration::days(30)
-                                        } else {
-                                            false
-                                        }
-                                    } else {
-                                        false
-                                    };
-                                    if needs_verify {
-                                        Ok(LoginResult::NeedsVerification {
-                                            privileges,
-                                            user_id,
-                                            patreon_id,
-                                            patreon_refresh_token,
+                                    let stored_password: String = row.get(0)?;
+                                    let login_allowed = PasswordHash::new(&stored_password)
+                                        .ok()
+                                        .and_then(|hash| {
+                                            Argon2::default()
+                                                .verify_password(password.as_bytes(), &hash)
+                                                .ok()
                                         })
-                                    } else {
-                                        Ok(LoginResult::Privileges(Some(privileges)))
+                                        .is_some();
+
+                                    if !login_allowed {
+                                        return Ok(LoginResult::Privileges(None));
                                     }
-                                }
-                                Ok(None) => Ok(LoginResult::Privileges(None)),
-                                Err(e) => Err(e),
-                            };
-                            let _ = resp.send(result);
-                        }
+
+                                    let privileges: i32 = row.get(1)?;
+                                    let last_updated_str: String = row.get(2)?;
+                                    let user_id: i32 = row.get(3)?;
+                                    let patreon_id: Option<String> = row.get(4)?;
+                                    let patreon_refresh_token: Option<String> = row.get(5)?;
+
+                                    let needs_verify = if privileges != 0 && privileges != 1 {
+                                        if let Ok(last_updated) =
+                                            NaiveDateTime::parse_from_str(&last_updated_str, "%Y-%m-%d %H:%M:%S")
+                                        {
+                                            let now = Utc::now().naive_utc();
+                        }}
                     }
                 }
             });
@@ -168,14 +154,20 @@ impl Database {
     pub async fn add_user(
         &self,
         username: &str,
-        password_hash: &str,
+        password: &str,
         privileges: i32,
     ) -> Result<()> {
+        let salt = SaltString::generate(&mut OsRng);
+        let password_hash = Argon2::default()
+            .hash_password(password.as_bytes(), &salt)
+            .map_err(|err| rusqlite::Error::InvalidParameterName(err.to_string()))?
+            .to_string();
+
         let (resp_tx, resp_rx) = oneshot::channel();
 
         let req = DbRequest::AddUser {
             username: username.to_string(),
-            password_hash: password_hash.to_string(),
+            password_hash,
             privileges,
             resp: resp_tx,
         };
@@ -204,11 +196,11 @@ impl Database {
         resp_rx.await.expect("DB thread panicked")
     }
 
-    pub async fn login(&self, username: &str, password_hash: &str) -> Result<Option<i32>> {
+    pub async fn login(&self, username: &str, password: &str) -> Result<Option<i32>> {
         let (resp_tx, resp_rx) = oneshot::channel();
         let req = DbRequest::Login {
             username: username.to_string(),
-            password_hash: password_hash.to_string(),
+            password: password.to_string(),
             resp: resp_tx,
         };
 
