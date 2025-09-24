@@ -238,7 +238,14 @@ fn verify_privilege(
     patreon_id: Option<String>,
     patreon_refresh_token: Option<String>,
 ) -> i32 {
-    testing::with_verification_probe(|probe| probe.mark_called());
+    testing::with_verification_probe(|probe| {
+        probe.record_call(testing::VerificationCall {
+            privileges,
+            user_id,
+            patreon_id: patreon_id.clone(),
+            patreon_refresh_token: patreon_refresh_token.clone(),
+        });
+    });
     // TODO: Implement verification logic using patreon oauth
     let _ = (patreon_id, patreon_refresh_token, user_id, privileges);
     privileges
@@ -251,9 +258,19 @@ pub mod testing {
         atomic::{AtomicBool, Ordering},
     };
 
-    #[derive(Clone, Default)]
+    #[derive(Clone)]
     pub struct VerificationProbe {
         called: Arc<AtomicBool>,
+        last_call: Arc<Mutex<Option<VerificationCall>>>,
+    }
+
+    impl Default for VerificationProbe {
+        fn default() -> Self {
+            Self {
+                called: Arc::new(AtomicBool::new(false)),
+                last_call: Arc::new(Mutex::new(None)),
+            }
+        }
     }
 
     impl VerificationProbe {
@@ -261,8 +278,13 @@ pub mod testing {
             self.called.load(Ordering::SeqCst)
         }
 
-        pub(crate) fn mark_called(&self) {
+        pub fn last_call(&self) -> Option<VerificationCall> {
+            self.last_call.lock().expect("probe mutex poisoned").clone()
+        }
+
+        pub(crate) fn record_call(&self, call: VerificationCall) {
             self.called.store(true, Ordering::SeqCst);
+            *self.last_call.lock().expect("probe mutex poisoned") = Some(call);
         }
     }
 
@@ -284,5 +306,13 @@ pub mod testing {
         if let Some(probe) = probe_slot().lock().expect("probe mutex poisoned").clone() {
             f(&probe);
         }
+    }
+
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct VerificationCall {
+        pub privileges: i32,
+        pub user_id: i32,
+        pub patreon_id: Option<String>,
+        pub patreon_refresh_token: Option<String>,
     }
 }

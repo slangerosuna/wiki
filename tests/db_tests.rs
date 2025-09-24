@@ -85,17 +85,29 @@ async fn login_with_stale_privileges_triggers_verification() {
         .expect("add_user failed");
 
     let conn = Connection::open(&path).expect("open connection");
+    let user_id: i32 = conn
+        .query_row(
+            "SELECT id FROM users WHERE username = ?1",
+            [&"carol"],
+            |row| row.get(0),
+        )
+        .expect("query user id");
     let stale = (Utc::now() - Duration::days(31)).format("%Y-%m-%d %H:%M:%S");
     conn.execute(
-        "UPDATE users SET privileges_last_updated = ?1 WHERE username = ?2",
-        params![stale.to_string(), "carol"],
+        "UPDATE users SET privileges_last_updated = ?1, patreon_id = ?2, patreon_refresh_token = ?3 WHERE username = ?4",
+        params![stale.to_string(), "patreon-carol", "refresh-token", "carol"],
     )
-    .expect("update timestamp");
+    .expect("update timestamp and patreon fields");
 
     let privileges = db.login("carol", "password").await.expect("login failed");
     assert_eq!(privileges, Some(5));
 
     assert!(probe.was_called());
+    let call = probe.last_call().expect("probe recorded call");
+    assert_eq!(call.privileges, 5);
+    assert_eq!(call.user_id, user_id);
+    assert_eq!(call.patreon_id.as_deref(), Some("patreon-carol"));
+    assert_eq!(call.patreon_refresh_token.as_deref(), Some("refresh-token"));
 
     wiki::db::testing::clear_verification_probe();
     db.close().await;

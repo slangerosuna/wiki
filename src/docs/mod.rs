@@ -1,8 +1,8 @@
+use axum::body::Body;
+use axum::http::request::Request;
 use std::future::Future;
 use std::pin::Pin;
 use tower_service::Service;
-use axum::http::request::Request;
-use axum::body::Body;
 
 #[derive(Clone)]
 pub struct ServeDocs {
@@ -20,7 +20,10 @@ impl Service<Request<Body>> for ServeDocs {
     type Error = std::convert::Infallible;
     type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
 
-    fn poll_ready(&mut self, _cx: &mut std::task::Context<'_>) -> std::task::Poll<Result<(), Self::Error>> {
+    fn poll_ready(
+        &mut self,
+        _cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), Self::Error>> {
         std::task::Poll::Ready(Ok(()))
     }
 
@@ -29,12 +32,19 @@ impl Service<Request<Body>> for ServeDocs {
         Box::pin(async move {
             let permissions;
             if let Some(jwt) = req.headers().get::<&str>("Authorization") {
-                let jwt = jwt.to_str().unwrap_or("").strip_prefix("Bearer ").unwrap_or("");
+                let jwt = jwt
+                    .to_str()
+                    .unwrap_or("")
+                    .strip_prefix("Bearer ")
+                    .unwrap_or("");
                 permissions = crate::user::get_jwt_perms(jwt).unwrap_or(1);
             } else {
                 return Ok(axum::response::Response::builder()
                     .status(200)
-                    .body(Body::from(format!("<!doctype html><html><head><script>{}</script></head></html>", include_str!("pull_jwt_or_forward_to_login.js"))))
+                    .body(Body::from(format!(
+                        "<!doctype html><html><head><script>{}</script></head></html>",
+                        include_str!("pull_jwt_or_forward_to_login.js")
+                    )))
                     .unwrap());
             }
 
@@ -42,7 +52,9 @@ impl Service<Request<Body>> for ServeDocs {
             if uri.query().map(|q| q.contains("edit")).unwrap_or(false) {
                 let uri = uri.path();
                 let doc_path = format!("{}{}.md", path, uri);
-                let contents = tokio::fs::read_to_string(&doc_path).await.unwrap_or_default();
+                let contents = tokio::fs::read_to_string(&doc_path)
+                    .await
+                    .unwrap_or_default();
 
                 let response = axum::response::Response::builder()
                     .status(200)
@@ -68,7 +80,7 @@ impl Service<Request<Body>> for ServeDocs {
             };
 
             let html = parse_markdown(&doc, permissions);
-            
+
             let css = include_str!("styles.css");
             let js = include_str!("main.js");
 
@@ -82,25 +94,26 @@ impl Service<Request<Body>> for ServeDocs {
     }
 }
 
-fn parse_markdown(doc: &str, permissions: i32) -> String {
+pub fn parse_markdown(doc: &str, permissions: i32) -> String {
     let mut sections = Vec::new();
     let mut current_section = String::new();
     let mut skip_section = false;
 
     for line in doc.lines() {
         if line.starts_with('!') {
-            if permissions >= line[1..].chars().next().unwrap_or('1').to_digit(10).unwrap_or(1) as i32 || permissions == 0 {
-                skip_section = false;
+            if !current_section.is_empty() && !skip_section {
+                sections.push(std::mem::take(&mut current_section));
             } else {
-                skip_section = true;
+                current_section.clear();
             }
 
-            if !current_section.is_empty() {
-                if !skip_section {
-                    sections.push(current_section);
-                }
-                current_section = String::new();
-            }
+            let required_level = line[1..]
+                .chars()
+                .next()
+                .and_then(|c| c.to_digit(10))
+                .unwrap_or(1) as i32;
+
+            skip_section = permissions != 0 && permissions < required_level;
         } else {
             current_section.push_str(line);
             current_section.push('\n');
@@ -110,7 +123,7 @@ fn parse_markdown(doc: &str, permissions: i32) -> String {
         sections.push(current_section);
     }
 
-    let page =sections
+    let page = sections
         .into_iter()
         .map(|section| comrak::markdown_to_html(&section, &comrak::Options::default()))
         .collect::<Vec<_>>()

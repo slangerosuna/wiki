@@ -1,22 +1,10 @@
 use axum::Router;
-use lazy_static::lazy_static;
 use std::net::SocketAddr;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::{net::TcpListener, sync::mpsc::Receiver};
 use tower_http::services::ServeDir;
 
-pub mod db;
-pub mod user;
-pub mod docs;
-
-use db::Database;
-use docs::ServeDocs;
-
-lazy_static! {
-    pub static ref DB: Database = Database::new("db.sqlite").unwrap();
-}
-
-pub const SECRET_KEY: &'static [u8] = include_bytes!("../secret_key");
+use wiki::{DB, docs::ServeDocs, user};
 
 #[tokio::main]
 async fn main() {
@@ -66,7 +54,6 @@ async fn main() {
         .with_graceful_shutdown(shutdown_signal(rx))
         .await
         .unwrap();
-
     DB.close().await;
 }
 

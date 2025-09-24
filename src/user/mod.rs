@@ -41,7 +41,11 @@ pub async fn login_handler(Json(payload): Json<LoginRequest>) -> impl IntoRespon
 
 pub async fn register_handler(Json(payload): Json<LoginRequest>) -> impl IntoResponse {
     let Ok(_) = crate::DB
-        .add_user(payload.username.as_str(), payload.password.as_str(), if payload.username == "root" { 0 } else { 1 })
+        .add_user(
+            payload.username.as_str(),
+            payload.password.as_str(),
+            if payload.username == "root" { 0 } else { 1 },
+        )
         .await
     else {
         return (

@@ -6,7 +6,7 @@ This document mirrors the roadmap in `next_steps.md` and will be updated after e
 
 | Item | Status | Test Coverage | Plan Doc | Notes |
 | --- | --- | --- | --- | --- |
-| Exercise `LoginResult::NeedsVerification` | [x] | `tests/db_tests.rs::login_with_stale_privileges_triggers_verification` | `docs/plans/database_coverage.md` | Stale timestamps trigger `verify_privilege()` via `VerificationProbe`; DB login returns original privileges. |
+| Exercise `LoginResult::NeedsVerification` | [x] | `tests/db_tests.rs::login_with_stale_privileges_triggers_verification` | `docs/plans/database_coverage.md` | Stale timestamps trigger `verify_privilege()` via `VerificationProbe`; probe captures privileges/user/patreon metadata while login returns original privileges. |
 | Back-date privilege timestamps safely | [ ] | `tests/db_tests.rs::timestamp_helper` (planned) | `docs/plans/database_coverage.md` | Introduce helper for manipulating timestamps without race conditions. |
 
 ## HTTP Handler End-to-End Tests
