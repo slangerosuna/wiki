@@ -9,9 +9,10 @@ pub enum LoginResult {
     },
 }
 
+use rusqlite::{Connection, Result, params};
+use std::sync::OnceLock;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task;
-use rusqlite::{Connection, Result, params};
 
 #[derive(Debug)]
 pub enum DbRequest {
@@ -237,7 +238,51 @@ fn verify_privilege(
     patreon_id: Option<String>,
     patreon_refresh_token: Option<String>,
 ) -> i32 {
+    testing::with_verification_probe(|probe| probe.mark_called());
     // TODO: Implement verification logic using patreon oauth
     let _ = (patreon_id, patreon_refresh_token, user_id, privileges);
     privileges
+}
+
+pub mod testing {
+    use super::OnceLock;
+    use std::sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    };
+
+    #[derive(Clone, Default)]
+    pub struct VerificationProbe {
+        called: Arc<AtomicBool>,
+    }
+
+    impl VerificationProbe {
+        pub fn was_called(&self) -> bool {
+            self.called.load(Ordering::SeqCst)
+        }
+
+        pub(crate) fn mark_called(&self) {
+            self.called.store(true, Ordering::SeqCst);
+        }
+    }
+
+    static VERIFICATION_PROBE: OnceLock<Mutex<Option<VerificationProbe>>> = OnceLock::new();
+
+    fn probe_slot() -> &'static Mutex<Option<VerificationProbe>> {
+        VERIFICATION_PROBE.get_or_init(|| Mutex::new(None))
+    }
+
+    pub fn set_verification_probe(probe: VerificationProbe) {
+        *probe_slot().lock().expect("probe mutex poisoned") = Some(probe);
+    }
+
+    pub fn clear_verification_probe() {
+        *probe_slot().lock().expect("probe mutex poisoned") = None;
+    }
+
+    pub(crate) fn with_verification_probe<F: FnOnce(&VerificationProbe)>(f: F) {
+        if let Some(probe) = probe_slot().lock().expect("probe mutex poisoned").clone() {
+            f(&probe);
+        }
+    }
 }
