@@ -10,6 +10,7 @@ Cover `ServeDocs::call()` behavior through integration-style tests validating ma
 - JWT-based privilege differences should determine which sections render.
 
 ## Implementation Notes
-- Mock requests using `tower::ServiceExt::oneshot` against a constructed `ServeDocs` service.
-- Populate temporary markdown files in a fixture directory for each test.
-- Reuse JWT helpers from shared utilities to generate tokens for privilege scenarios.
+- Bootstrap page now renders `redirectToLogin()` helper that uses `encodeURIComponent` and preserves the original docs path via query parameters.
+- `pull_jwt_or_forward_to_login.js` fetches protected content with stored JWTs and clears invalid tokens when it receives `401`.
+- Login experience consumes the `redirect` query parameter rather than `localStorage` state.
+- Future doc tests should mock requests using async `Service::call` and decode the bootstrap script to assert helper presence.

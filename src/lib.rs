@@ -1,5 +1,6 @@
 use lazy_static::lazy_static;
 
+pub mod app;
 pub mod db;
 pub mod docs;
 pub mod user;

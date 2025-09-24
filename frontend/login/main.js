@@ -1,5 +1,24 @@
-let redirect = localStorage.getItem("redirect") || "/";
-localStorage.removeItem("redirect");
+const DEFAULT_REDIRECT = "/";
+
+function pickRedirect() {
+    const params = new URLSearchParams(window.location.search);
+    const target = params.get("redirect");
+    if (!target) {
+        return DEFAULT_REDIRECT;
+    }
+
+    try {
+        const decoded = decodeURIComponent(target);
+        if (!decoded.startsWith("http://") && !decoded.startsWith("https://")) {
+            return decoded || DEFAULT_REDIRECT;
+        }
+        return DEFAULT_REDIRECT;
+    } catch (_) {
+        return DEFAULT_REDIRECT;
+    }
+}
+
+const redirect = pickRedirect();
 
 document.getElementById("login-button").addEventListener("click", async (event) => {
     event.preventDefault();
@@ -50,10 +69,9 @@ document.getElementById("register-button").addEventListener("click", async (even
         document.getElementById("error-message").innerText = errorMessage;
     }
 });
-
 document.getElementById("continue-as-guest-button").addEventListener("click", (event) => {
     event.preventDefault();
 
     localStorage.setItem("jwt", "guest");
-    window.location.href = redirect;
+    window.location.href = pickRedirect();
 });

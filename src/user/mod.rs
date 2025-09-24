@@ -9,6 +9,12 @@ pub struct LoginRequest {
     password: String,
 }
 
+#[derive(Serialize)]
+struct AuthResponse {
+    token: String,
+    privileges: i32,
+}
+
 pub async fn login_handler(Json(payload): Json<LoginRequest>) -> impl IntoResponse {
     let Ok(Some(privilege)) = crate::DB
         .login(payload.username.as_str(), payload.password.as_str())
@@ -23,20 +29,12 @@ pub async fn login_handler(Json(payload): Json<LoginRequest>) -> impl IntoRespon
 
     let auth_token = create_jwt(payload.username.as_str(), privilege).unwrap();
 
-    #[derive(Serialize)]
-    struct LoginResponse {
-        token: String,
-        privileges: i32,
-    }
-
-    let response = LoginResponse {
+    let response = AuthResponse {
         token: auth_token,
         privileges: privilege,
     };
 
-    let response = serde_json::to_string(&response).unwrap();
-
-    (axum::http::StatusCode::OK, response).into_response()
+    (axum::http::StatusCode::OK, Json(response)).into_response()
 }
 
 pub async fn register_handler(Json(payload): Json<LoginRequest>) -> impl IntoResponse {

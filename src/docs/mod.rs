@@ -1,5 +1,6 @@
 use axum::body::Body;
 use axum::http::request::Request;
+use serde_json;
 use std::future::Future;
 use std::pin::Pin;
 use tower_service::Service;
@@ -31,7 +32,7 @@ impl Service<Request<Body>> for ServeDocs {
         let path = self.path.clone();
         Box::pin(async move {
             let permissions;
-            if let Some(jwt) = req.headers().get::<&str>("Authorization") {
+            if let Some(jwt) = req.headers().get("Authorization") {
                 let jwt = jwt
                     .to_str()
                     .unwrap_or("")
@@ -39,12 +40,23 @@ impl Service<Request<Body>> for ServeDocs {
                     .unwrap_or("");
                 permissions = crate::user::get_jwt_perms(jwt).unwrap_or(1);
             } else {
+                let redirect_target = req
+                    .uri()
+                    .path_and_query()
+                    .map(|pq| pq.as_str().to_string())
+                    .unwrap_or_else(|| req.uri().path().to_string());
+                let redirect_literal = serde_json::to_string(&redirect_target).unwrap();
+                let bootstrap = include_str!("pull_jwt_or_forward_to_login.js")
+                    .replace("__REDIRECT_TARGET__", &redirect_literal);
+
+                let html = format!(
+                    "<!doctype html><html><head><meta charset=\"utf-8\"><title>Loading documentation…</title></head><body><div id=\"docs-bootstrap\"></div><script>{}</script></body></html>",
+                    bootstrap
+                );
+
                 return Ok(axum::response::Response::builder()
-                    .status(200)
-                    .body(Body::from(format!(
-                        "<!doctype html><html><head><script>{}</script></head></html>",
-                        include_str!("pull_jwt_or_forward_to_login.js")
-                    )))
+                    .status(axum::http::StatusCode::OK)
+                    .body(Body::from(html))
                     .unwrap());
             }
 
