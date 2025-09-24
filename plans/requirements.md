@@ -8,6 +8,7 @@ This document mirrors the roadmap in `next_steps.md` and will be updated after e
 | --- | --- | --- | --- | --- |
 | Exercise `LoginResult::NeedsVerification` | [x] | `tests/db_tests.rs::login_with_stale_privileges_triggers_verification` | `docs/plans/database_coverage.md` | Stale timestamps trigger `verify_privilege()` via `VerificationProbe`; probe captures privileges/user/patreon metadata while login returns original privileges. |
 | Back-date privilege timestamps safely | [x] | `tests/db_tests.rs::login_with_stale_privileges_triggers_verification` | `docs/plans/database_coverage.md` | Shared `wiki::db::testing::backdate_privileges()` clamps negative deltas and updates timestamps for deterministic verification coverage. |
+| Ensure that login uses cryptographically secure methods | [x] | `tests/db_tests.rs::login_uses_secure_password_hashing` | `docs/plans/database_coverage.md` | Passwords hashed with Argon2id on insert; login verifies hashes and rejects malformed or incorrect credentials. |
 
 ## HTTP Handler End-to-End Tests
 

@@ -9,9 +9,9 @@ pub enum LoginResult {
     },
 }
 
-use argon2::{Argon2, PasswordHasher, PasswordVerifier};
 use argon2::password_hash::{PasswordHash, SaltString, rand_core::OsRng};
-use rusqlite::{Connection, Result, params};
+use argon2::{Argon2, PasswordHasher, PasswordVerifier};
+use rusqlite::{Connection, Error as RusqliteError, Result, params};
 use std::sync::OnceLock;
 use tokio::sync::{mpsc, oneshot};
 use tokio::task;
@@ -96,54 +96,66 @@ impl Database {
                             let _ = resp.send(result);
                         }
                         DbRequest::Login { username, password, resp } => {
-                            let mut stmt = match conn.prepare(
-                                "SELECT password, privileges, privileges_last_updated, id, patreon_id, patreon_refresh_token FROM users WHERE username = ?1"
-                            ) {
-                                Ok(stmt) => stmt,
-                                Err(e) => {
-                                    let _ = resp.send(Err(e));
-                                    continue;
-                                }
-                            };
-
-                            let mut rows = match stmt.query(params![username]) {
-                                Ok(rows) => rows,
-                                Err(e) => {
-                                    let _ = resp.send(Err(e));
-                                    continue;
-                                }
-                            };
-
                             use chrono::{Duration, NaiveDateTime, Utc};
 
-                            let result: Result<LoginResult> = match rows.next() {
-                                Ok(Some(row)) => {
-                                    let stored_password: String = row.get(0)?;
-                                    let login_allowed = PasswordHash::new(&stored_password)
-                                        .ok()
-                                        .and_then(|hash| {
-                                            Argon2::default()
-                                                .verify_password(password.as_bytes(), &hash)
-                                                .ok()
-                                        })
-                                        .is_some();
+                            let result: Result<LoginResult> = (|| {
+                                let mut stmt = conn.prepare(
+                                    "SELECT password, privileges, privileges_last_updated, id, patreon_id, patreon_refresh_token FROM users WHERE username = ?1",
+                                )?;
 
-                                    if !login_allowed {
-                                        return Ok(LoginResult::Privileges(None));
-                                    }
+                                let mut rows = stmt.query(params![username])?;
+                                match rows.next()? {
+                                    Some(row) => {
+                                        let stored_password: String = row.get(0)?;
+                                        let parsed_hash = match PasswordHash::new(&stored_password) {
+                                            Ok(hash) => hash,
+                                            Err(_) => return Ok(LoginResult::Privileges(None)),
+                                        };
 
-                                    let privileges: i32 = row.get(1)?;
-                                    let last_updated_str: String = row.get(2)?;
-                                    let user_id: i32 = row.get(3)?;
-                                    let patreon_id: Option<String> = row.get(4)?;
-                                    let patreon_refresh_token: Option<String> = row.get(5)?;
-
-                                    let needs_verify = if privileges != 0 && privileges != 1 {
-                                        if let Ok(last_updated) =
-                                            NaiveDateTime::parse_from_str(&last_updated_str, "%Y-%m-%d %H:%M:%S")
+                                        if Argon2::default()
+                                            .verify_password(password.as_bytes(), &parsed_hash)
+                                            .is_err()
                                         {
-                                            let now = Utc::now().naive_utc();
-                        }}
+                                            return Ok(LoginResult::Privileges(None));
+                                        }
+
+                                        let privileges: i32 = row.get(1)?;
+                                        let last_updated_str: String = row.get(2)?;
+                                        let user_id: i32 = row.get(3)?;
+                                        let patreon_id: Option<String> = row.get(4)?;
+                                        let patreon_refresh_token: Option<String> = row.get(5)?;
+
+                                        let needs_verify = if privileges != 0 && privileges != 1 {
+                                            if let Ok(last_updated) = NaiveDateTime::parse_from_str(
+                                                &last_updated_str,
+                                                "%Y-%m-%d %H:%M:%S",
+                                            ) {
+                                                let now = Utc::now().naive_utc();
+                                                now.signed_duration_since(last_updated) > Duration::days(30)
+                                            } else {
+                                                false
+                                            }
+                                        } else {
+                                            false
+                                        };
+
+                                        if needs_verify {
+                                            Ok(LoginResult::NeedsVerification {
+                                                privileges,
+                                                user_id,
+                                                patreon_id,
+                                                patreon_refresh_token,
+                                            })
+                                        } else {
+                                            Ok(LoginResult::Privileges(Some(privileges)))
+                                        }
+                                    }
+                                    None => Ok(LoginResult::Privileges(None)),
+                                }
+                            })();
+
+                            let _ = resp.send(result);
+                        }
                     }
                 }
             });
@@ -151,16 +163,11 @@ impl Database {
         Ok(Database { tx })
     }
 
-    pub async fn add_user(
-        &self,
-        username: &str,
-        password: &str,
-        privileges: i32,
-    ) -> Result<()> {
+    pub async fn add_user(&self, username: &str, password: &str, privileges: i32) -> Result<()> {
         let salt = SaltString::generate(&mut OsRng);
         let password_hash = Argon2::default()
             .hash_password(password.as_bytes(), &salt)
-            .map_err(|err| rusqlite::Error::InvalidParameterName(err.to_string()))?
+            .map_err(|_| RusqliteError::InvalidQuery)?
             .to_string();
 
         let (resp_tx, resp_rx) = oneshot::channel();

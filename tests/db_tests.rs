@@ -48,12 +48,12 @@ async fn login_uses_secure_password_hashing() {
         .expect("fetch stored password");
 
     assert_ne!(stored_password, password, "password should be hashed");
-    assert!(stored_password.starts_with("$argon2id$"), "unexpected hash format: {stored_password}");
+    assert!(
+        stored_password.starts_with("$argon2id$"),
+        "unexpected hash format: {stored_password}"
+    );
 
-    let privileges = db
-        .login(username, password)
-        .await
-        .expect("login failed");
+    let privileges = db.login(username, password).await.expect("login failed");
     assert_eq!(privileges, Some(7));
 
     let wrong_privileges = db
